@@ -2,6 +2,10 @@
 
 A multi-label toxic content detection system that identifies **hate speech** and **cyberbullying** in text using a fine-tuned RoBERTa transformer model. Built with adversarial robustness testing and a REST API demo.
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SocoSec/ToxicContentDetection/blob/main/notebooks/train_on_colab.ipynb)
+
+> **Want the full story?** See [`WALKTHROUGH.txt`](WALKTHROUGH.txt) for a step-by-step explanation of the architecture, the transformer / transfer-learning approach, and the results. To train on a free GPU for real metrics, click the Colab badge above.
+
 ---
 
 ## Project Structure
