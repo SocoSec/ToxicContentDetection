@@ -1,0 +1,13 @@
+{
+  "accuracy": 0.8788,
+  "f1_macro": 0.4545,
+  "f1_weighted": 0.8557,
+  "precision_macro": 0.5591,
+  "recall_macro": 0.462,
+  "per_class_f1": {
+    "clean": 0.7907,
+    "offensive": 0.933,
+    "hate_speech": 0.0944,
+    "cyberbullying": 0.0
+  }
+}

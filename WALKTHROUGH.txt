@@ -1,0 +1,372 @@
+===============================================================================
+ TOXIC CONTENT DETECTION PLATFORM - PROJECT WALKTHROUGH
+ Author: Esmail Abdullah  |  Built/run: 2026-10-31
+ This file explains, step by step, what the project is, the AI algorithm it
+ uses, how every part connects, how it was made to run on this machine, and
+ the real results produced. Plain text, meant to be read in VS Code.
+===============================================================================
+
+
+-------------------------------------------------------------------------------
+ 0. ONE-PARAGRAPH SUMMARY
+-------------------------------------------------------------------------------
+This project is a text classifier that reads a sentence and decides whether it
+is CLEAN, OFFENSIVE, HATE_SPEECH, or CYBERBULLYING. It is built by taking a
+large language model that already understands English (RoBERTa) and
+"fine-tuning" it on labelled examples of toxic and non-toxic text. Around the
+model sits a full pipeline: load data -> clean it -> train -> measure accuracy
+-> attack the model with obfuscated text to test robustness -> serve it as a
+web API. Everything runs locally in Python.
+
+
+-------------------------------------------------------------------------------
+ 1. THE AI ALGORITHM (what kind of AI this is, in plain words)
+-------------------------------------------------------------------------------
+
+1.1 FAMILY: This is SUPERVISED MACHINE LEARNING for TEXT CLASSIFICATION.
+    "Supervised" = we train on examples where the correct answer (label) is
+    known. "Classification" = the output is one category out of a fixed set
+    (here: 4 categories).
+
+1.2 THE MODEL: RoBERTa (specifically "roberta-base").
+    - RoBERTa is a TRANSFORMER neural network. The transformer is the same
+      architecture family behind modern LLMs (GPT, BERT, etc.).
+    - "base" size = 12 transformer layers, 125 million parameters,
+      768-dimensional internal representations.
+    - It was PRE-TRAINED by Facebook AI on ~160 GB of English text. During that
+      pre-training it learned grammar, word meaning, and context by repeatedly
+      guessing masked-out words. We do NOT redo that - we reuse it.
+
+1.3 HOW THE TRANSFORMER UNDERSTANDS TEXT (the key idea: SELF-ATTENTION):
+    - Text is first split into "tokens" (word pieces) by a tokenizer.
+    - Each token becomes a vector (a list of numbers).
+    - SELF-ATTENTION lets every token "look at" every other token in the
+      sentence and weight how relevant each one is. This is how the model
+      captures context: in "I do NOT hate you", the word "NOT" changes the
+      meaning of "hate", and attention is what lets the model see that.
+    - After 12 layers of attention + transformation, the model produces one
+      summary vector for the whole sentence (the special [CLS]/<s> token).
+
+1.4 THE CLASSIFICATION HEAD:
+    - On top of that 768-number summary vector we add a small, fresh neural
+      layer with 4 outputs - one score per class.
+    - These 4 raw scores are called LOGITS. Softmax turns them into
+      probabilities that sum to 1.0. The highest one is the prediction.
+
+1.5 TRANSFER LEARNING / FINE-TUNING (why this works with little data):
+    - The 125M pre-trained parameters already "know English". We only need to
+      teach the model our specific task.
+    - FINE-TUNING = continue training the whole network (base + new head) on our
+      labelled toxic/clean examples, with a very small learning rate (2e-5) so
+      we nudge the existing knowledge rather than destroying it.
+    - This is why we can get a working classifier from a few thousand examples
+      instead of the millions you would need to train from scratch.
+
+1.6 HOW IT LEARNS (the training loop, conceptually):
+    - Show the model a batch of sentences -> it predicts probabilities.
+    - A LOSS FUNCTION (cross-entropy) measures how wrong the predictions are
+      vs the true labels.
+    - BACKPROPAGATION computes which direction to nudge each of the 125M
+      parameters to reduce the loss; the OPTIMIZER (AdamW) applies the nudge.
+    - Repeat over many batches/epochs. The loss goes down; accuracy goes up.
+    - We use CLASS-WEIGHTED loss because the data is imbalanced (far more
+      "offensive" than "hate_speech"); weighting makes rare classes count more.
+
+
+-------------------------------------------------------------------------------
+ 2. PROJECT STRUCTURE (what each file does and how they connect)
+-------------------------------------------------------------------------------
+
+ToxicContentDetection/
+|
+|-- data/
+|     raw/          Original datasets (CSV). Davidson tweets live here.
+|     processed/    Generated: dataset.csv, then train.csv/val.csv/test.csv
+|
+|-- src/
+|     dataset_loader.py  STEP 1. Reads raw CSVs, maps their different label
+|                        schemes to ONE scheme (clean/offensive/hate/cyber),
+|                        merges them, saves data/processed/dataset.csv.
+|     preprocess.py      STEP 2. Cleans text (URLs, @mentions, repeated chars,
+|                        unicode) and splits into train/val/test (70/15/15,
+|                        stratified so each split has the same class mix).
+|     train.py           STEP 3. Fine-tunes roberta-base on train.csv, checks
+|                        val.csv each epoch, saves the best model to
+|                        models/toxic_roberta/. THIS is where the AI is made.
+|     predict.py         Helper: classify one sentence from the command line.
+|
+|-- evaluation/
+|     evaluate.py        STEP 4. Loads the trained model, runs it on the unseen
+|                        test.csv, prints F1/precision/recall, saves a
+|                        confusion-matrix image + metrics.json.
+|
+|-- adversarial/
+|     adversarial_test.py STEP 5. Tries to FOOL the model with obfuscated text
+|                        (leetspeak h4t3, emojis, homoglyphs, spacing...) and
+|                        reports an evasion rate + overall robustness score.
+|                        This is the "red team" part - it attacks our own model.
+|
+|-- demo/
+|     app.py             STEP 6. A Flask web server. POST text to /predict and
+|                        get back the predicted label + probabilities as JSON.
+|
+|-- models/              Saved trained model (created by train.py).
+|-- requirements.txt     Python dependencies.
+|-- README.md            Short project description.
+|-- WALKTHROUGH.txt       <-- this file.
+
+DATA FLOW (how a run moves through the files):
+  raw CSV
+    -> dataset_loader.py  -> data/processed/dataset.csv
+    -> preprocess.py      -> train.csv / val.csv / test.csv
+    -> train.py           -> models/toxic_roberta/  (the trained AI)
+    -> evaluate.py        -> metrics.json + confusion_matrix.png
+    -> adversarial_test.py-> adversarial_results.json
+    -> demo/app.py        -> live REST API using models/toxic_roberta/
+
+
+-------------------------------------------------------------------------------
+ 3. THE TECH STACK (what was used)
+-------------------------------------------------------------------------------
+  Language   : Python 3.14
+  Deep learn : PyTorch 2.15 (CPU build on this machine - no GPU)
+  Model/NLP  : HuggingFace Transformers 4.57 (roberta-base + tokenizer)
+  Data       : pandas, numpy
+  Metrics    : scikit-learn (F1, precision, recall, confusion matrix)
+  Plots      : matplotlib + seaborn (confusion-matrix image)
+  API        : Flask (REST server for the demo)
+  Isolation  : a local virtual environment at .venv/ (keeps these heavy
+               libraries separate from the system Python)
+
+
+-------------------------------------------------------------------------------
+ 4. WHAT HAD TO BE FIXED TO MAKE IT RUN (honest engineering log)
+-------------------------------------------------------------------------------
+The code logic was complete and correct, but it would not run on this machine.
+Four real blockers were found and fixed:
+
+  BUG 1 - Impossible dependencies.
+    requirements.txt pinned torch==2.2.2, which has NO version for Python 3.14,
+    so "pip install" failed immediately (this was the error on screen).
+    FIX: rewrote requirements.txt to modern, compatible version ranges
+    (torch>=2.9, transformers>=4.46,<5, ...) and dropped two packages that were
+    listed but never imported (datasets, accelerate).
+
+  BUG 2 - Crash on every script's final print (UnicodeEncodeError).
+    The scripts print nice symbols (check-mark, arrow, bar). The Windows
+    console uses cp1252 encoding, which cannot print those symbols, so each
+    script crashed AFTER doing its work.
+    FIX: added a small "UTF-8 console guard" to the top of all 7 scripts so
+    they force UTF-8 output and run no matter how they are launched.
+
+  BUG 3 - Crash when a class is missing from the data.
+    The real Davidson dataset has only 3 of our 4 classes (no cyberbullying).
+    compute_class_weights() and evaluate.py both assumed all 4 classes were
+    present and crashed otherwise.
+    FIX: made both robust - class weights now always produce a length-4 vector,
+    and the evaluation report is told the full label set explicitly. The data
+    loader also "tops up" any missing class with a few placeholder rows so the
+    system stays 4-class as designed.
+
+  BUG 4 - pandas 3 dropped a column during subsampling.
+    A stratified-subsample helper (added for fast CPU demo runs) used
+    groupby().apply(), which in pandas 3 silently drops the grouping column,
+    causing a KeyError on 'label_id'.
+    FIX: switched to groupby().sample(), which keeps all columns.
+
+ENVIRONMENT IMPROVEMENTS:
+  - Created an isolated virtual environment (.venv) so the ~1 GB of ML
+    libraries do not pollute the system Python.
+  - Downloaded the REAL Davidson dataset (~24,000 labelled tweets) into
+    data/raw/ so results are meaningful instead of synthetic.
+  - Added optional environment-variable knobs to train.py (TOXIC_EPOCHS,
+    TOXIC_MAX_TRAIN, TOXIC_MAX_LENGTH, TOXIC_BATCH_SIZE) so a quick run is
+    possible on a CPU without changing the project's real default settings.
+
+
+-------------------------------------------------------------------------------
+ 5. EXACT STEPS THAT WERE RUN (reproduce it yourself)
+-------------------------------------------------------------------------------
+All commands are run from the project folder:
+  cd "C:\Users\Esmail\OneDrive\Desktop\Research\ToxicContentDetection"
+
+Use the virtual environment's Python (.venv\Scripts\python.exe), or activate it
+first with:  .venv\Scripts\activate
+
+  # (one time) create the environment and install dependencies
+  py -3.14 -m venv .venv
+  .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+  # STEP 1 - build the combined dataset (reads data/raw, writes dataset.csv)
+  .venv\Scripts\python.exe src\dataset_loader.py
+
+  # STEP 2 - clean + split into train/val/test
+  .venv\Scripts\python.exe src\preprocess.py
+
+  # STEP 3 - train the model
+  #   Full/real run (slow on CPU - best on a GPU machine):
+  .venv\Scripts\python.exe src\train.py
+  #   Fast demo run used here (small subset, 1 epoch) via env knobs:
+  #   set TOXIC_MAX_TRAIN=2000 & set TOXIC_EPOCHS=1 & set TOXIC_MAX_LENGTH=64
+  #   then: .venv\Scripts\python.exe src\train.py
+
+  # STEP 4 - evaluate on the unseen test set
+  .venv\Scripts\python.exe evaluation\evaluate.py
+
+  # STEP 5 - adversarial robustness test
+  .venv\Scripts\python.exe adversarial\adversarial_test.py
+
+  # STEP 6 - run the live API, then POST text to it
+  .venv\Scripts\python.exe demo\app.py
+  #   In another terminal:
+  #   curl -X POST http://localhost:5000/predict ^
+  #        -H "Content-Type: application/json" ^
+  #        -d "{\"text\": \"I hate everyone from that country\"}"
+
+
+-------------------------------------------------------------------------------
+ 6. RESULTS FROM THIS RUN
+-------------------------------------------------------------------------------
+
+DATA ACTUALLY USED:
+  Source        : Davidson et al. 2017 (real tweets) + synthetic top-up for the
+                  cyberbullying class.
+  Total samples : 24,933  (after cleaning: 24,920)
+  Split         : train 17,444 / val 3,738 / test 3,738  (stratified 70/15/15)
+  Class balance : offensive 19,190 | clean 4,163 | hate_speech 1,430 |
+                  cyberbullying 150   (heavily imbalanced - see limitations)
+
+TRAINING (fast CPU demo run: 2,000 training rows, 1 epoch, max_len 64):
+  Device        : CPU (no GPU on this machine)
+  Train F1      : 0.3535
+  Validation F1 : 0.4455
+  Validation Acc: 0.8831   (88.3%)
+  Model saved   : models/toxic_roberta/  (model.safetensors + tokenizer files)
+
+  How to read this: 88% accuracy looks high but is partly because "offensive"
+  dominates the data - a model can be right often just by leaning toward the
+  majority class. That is exactly why we also report F1 (which rewards getting
+  the rare classes right) and why F1 is lower than accuracy here. One epoch on
+  2,000 rows is a smoke-test to prove the pipeline works end to end, NOT a
+  final scientific result.
+
+TEST-SET METRICS (evaluation/evaluate.py on the 3,738 UNSEEN test rows):
+  Overall accuracy : 0.8788  (87.9%)
+  Macro F1         : 0.4545   <- the honest headline number
+  Weighted F1      : 0.8557
+  Macro precision  : 0.5591
+  Macro recall     : 0.4620
+
+  Per-class F1 (and support = how many test examples existed):
+    clean          : 0.791   (support   624)  <- learned well
+    offensive      : 0.933   (support 2,878)  <- learned very well (majority)
+    hate_speech    : 0.094   (support   214)  <- barely learned (rare + subtle)
+    cyberbullying  : 0.000   (support    22)  <- not learned (tiny synthetic set)
+
+  Artifacts written:
+    evaluation/metrics.json            (the numbers above)
+    evaluation/confusion_matrix.png    (visual: what gets confused with what)
+    evaluation/test_predictions.csv    (every test row + predicted probabilities)
+
+  Interpretation: the model is strong on the two common classes and weak on the
+  two rare ones. Accuracy (88%) is flattered by "offensive" being the majority;
+  macro-F1 (0.45) is the truthful measure because it weights all four classes
+  equally. Fixing this = more real data for the rare classes + more training +
+  class balancing (see Section 7). This is a correct, expected baseline for a
+  1-epoch / 2,000-row CPU demo on imbalanced data - the PIPELINE is proven;
+  the MODEL is intentionally undertrained for speed.
+
+LIVE API CHECK (demo/app.py - proven working end to end):
+  GET  /health            -> {"status":"ok","model_loaded":true,"device":"cpu"}
+  POST /predict "Great game today..."              -> clean      (conf 0.87) OK
+  POST /predict "What an absolute idiot..."        -> offensive  (conf 0.43) OK
+  POST /predict "All people from that religion..." -> clean      (miss; rare
+       class under-learned, consistent with the hate_speech F1 above)
+  The API itself works perfectly; the misses are the model's weakness on rare
+  classes, not a software fault.
+
+ADVERSARIAL ROBUSTNESS (adversarial/adversarial_test.py, 500 test samples):
+  Evasion rate = % of predictions an attack managed to FLIP (higher = worse
+  for us; it means the obfuscation fooled the model).
+
+    leetspeak        (h4t3)      : 78.4%   <- very effective attack
+    mixed_case       (HaTe)      : 69.4%   <- very effective
+    homoglyphs       (Cyrillic a): 52.8%   <- effective
+    whitespace       (h a t e)   : 13.2%
+    misspelling      (haet)      : 11.2%
+    char_repetition  (haaate)    :  6.8%
+    emoji_injection  (hate +emoji):  2.6%  <- model shrugs this off
+
+    OVERALL ROBUSTNESS SCORE     : 66.5 / 100   (higher = more robust)
+
+  What this teaches (this is the real security insight of the project):
+    - The model is robust to additive noise (emojis, repeated letters) because
+      the tokenizer still sees the core word.
+    - It is FRAGILE to character substitution (leetspeak, homoglyphs, case)
+      because those break the word into different tokens the model never learned
+      as toxic. A real attacker evades a filter like this with "k1ll" not "kill".
+    - Defence = train WITH these obfuscations (adversarial data augmentation),
+      and/or normalise text (de-leet, map homoglyphs to ASCII, lowercase) before
+      the model sees it. This is exactly the red-team -> harden loop.
+  Artifact: adversarial/adversarial_results.json
+
+
+-------------------------------------------------------------------------------
+ 7. HOW TO GET REAL (publishable) RESULTS
+-------------------------------------------------------------------------------
+This run proves the system works. For results you could put in a thesis or
+portfolio, do two things:
+
+  (A) Add the other two datasets so all 4 classes are real (not synthetic):
+      - Kaggle Cyberbullying Classification -> data/raw/cyberbullying_tweets.csv
+        (needs a free Kaggle login to download)
+      - HatEval 2019 (English)             -> data/raw/hateval2019_en_train.csv
+      The loader auto-detects these filenames and merges them in.
+
+  (B) Train properly, ideally on a GPU:
+      Run the default (no env knobs):  .venv\Scripts\python.exe src\train.py
+      That uses the full 17,444 training rows, 3 epochs, max_len 128.
+      On CPU this takes hours; on a GPU it is minutes. Google Colab's free GPU
+      is enough if this machine has no GPU.
+      Also consider balancing the classes (undersample "offensive" or oversample
+      the rare classes) to raise the macro-F1.
+
+
+-------------------------------------------------------------------------------
+ 8. LIMITATIONS (be honest about these)
+-------------------------------------------------------------------------------
+  - CPU only here: training was deliberately shrunk to run in minutes. The
+    numbers above are a working baseline, not a tuned final model.
+  - Class imbalance: "offensive" is ~77% of the data; rare classes are
+    under-learned. Accuracy overstates quality; trust macro-F1 more.
+  - The cyberbullying class is currently synthetic placeholder text. Add the
+    Kaggle set for a real 4th class.
+  - A toxic-content model is an assistant to human moderation, not a verdict.
+    It reflects the biases of its training data and must not be the sole
+    decision-maker for real moderation actions.
+  - Models like this can be sensitive to obfuscation - that is precisely what
+    the adversarial test measures, and why it is part of the project.
+
+
+-------------------------------------------------------------------------------
+ 9. GLOSSARY (quick reference)
+-------------------------------------------------------------------------------
+  Token          A word or word-piece the model reads as one unit.
+  Embedding      The vector (list of numbers) representing a token.
+  Transformer    Neural network built on self-attention; the modern NLP base.
+  Self-attention Mechanism letting each token weigh every other token's context.
+  Fine-tuning    Continuing to train a pre-trained model on your own task/data.
+  Logits         Raw output scores before they are turned into probabilities.
+  Softmax        Turns logits into probabilities that sum to 1.
+  Cross-entropy  The loss function for classification (penalises wrong, confident
+                 predictions most).
+  AdamW          The optimizer; decides how to update weights from the loss.
+  Epoch          One full pass over the training data.
+  F1 score       Balance of precision and recall; macro-F1 averages across
+                 classes so rare classes matter as much as common ones.
+  Confusion mat. Table of true-vs-predicted labels; shows WHAT gets confused.
+  Evasion rate   % of inputs whose prediction an attack managed to change.
+
+===============================================================================
+ END OF WALKTHROUGH
+===============================================================================

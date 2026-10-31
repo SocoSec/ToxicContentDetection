@@ -1,0 +1,73 @@
+{
+  "leetspeak": {
+    "evasion_rate": 0.784,
+    "samples_changed": 392,
+    "total_samples": 500,
+    "per_label": {
+      "clean": 0.0,
+      "offensive": 0.9582,
+      "hate_speech": 1.0
+    }
+  },
+  "emoji_injection": {
+    "evasion_rate": 0.026,
+    "samples_changed": 13,
+    "total_samples": 500,
+    "per_label": {
+      "clean": 0.1429,
+      "offensive": 0.0,
+      "hate_speech": 0.0
+    }
+  },
+  "char_repetition": {
+    "evasion_rate": 0.068,
+    "samples_changed": 34,
+    "total_samples": 500,
+    "per_label": {
+      "clean": 0.3297,
+      "offensive": 0.0074,
+      "hate_speech": 0.5
+    }
+  },
+  "misspelling": {
+    "evasion_rate": 0.112,
+    "samples_changed": 56,
+    "total_samples": 500,
+    "per_label": {
+      "clean": 0.3626,
+      "offensive": 0.0541,
+      "hate_speech": 0.5
+    }
+  },
+  "homoglyphs": {
+    "evasion_rate": 0.528,
+    "samples_changed": 264,
+    "total_samples": 500,
+    "per_label": {
+      "clean": 0.1099,
+      "offensive": 0.6192,
+      "hate_speech": 1.0
+    }
+  },
+  "whitespace": {
+    "evasion_rate": 0.132,
+    "samples_changed": 66,
+    "total_samples": 500,
+    "per_label": {
+      "clean": 0.044,
+      "offensive": 0.1474,
+      "hate_speech": 1.0
+    }
+  },
+  "mixed_case": {
+    "evasion_rate": 0.694,
+    "samples_changed": 347,
+    "total_samples": 500,
+    "per_label": {
+      "clean": 0.044,
+      "offensive": 0.8378,
+      "hate_speech": 1.0
+    }
+  },
+  "overall_robustness_score": 66.5
+}
